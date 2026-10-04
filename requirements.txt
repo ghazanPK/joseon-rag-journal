@@ -1,0 +1,3 @@
+# Standard-library offline baseline: no third-party dependencies.
+# Optional local/cache-only semantic backend: sentence-transformers>=3.0
+

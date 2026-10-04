@@ -1,0 +1,17 @@
+title: "Joseon RAG journal"
+description: "Article-aware retrieval grounds answers in the Annals of the Joseon Dynasty."
+markdown: kramdown
+kramdown:
+  input: GFM
+exclude:
+  - src
+  - tests
+  - .venv
+  - data
+  - runs
+  - outputs
+  - checkpoints
+  - pyproject.toml
+  - requirements.txt
+  - package.json
+  - package-lock.json
