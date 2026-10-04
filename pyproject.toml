@@ -12,10 +12,10 @@ dependencies = []
 
 [project.optional-dependencies]
 semantic = ["sentence-transformers>=3.0"]
+speech = ["kokoro>=0.9.4", "soundfile", "faster-whisper>=1.1"]
 
 [project.scripts]
 joseon-rag = "joseon_rag.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
-

@@ -60,16 +60,17 @@ This repository implements an evidence-first pipeline for dense chronological re
 
 This is an independent educational implementation. It is not the institute implementation and does not ship the Annals corpus, crawler output, API credentials, embedding cache, model weights, benchmark, or prompts.
 
-### Run the offline example
+### Start the evidence inspector
 
 ```powershell
 python -m venv .venv
 .venv\Scripts\Activate.ps1
 python -m pip install -e .
-python scripts/smoke.py
+joseon-rag build examples/articles.jsonl --out outputs/demo.index.json
+joseon-rag serve outputs/demo.index.json --events examples/events.json
 ```
 
-The JSON answer includes every selected claim, citation ID/URL, rewritten query, filter behavior, retrieval/reranking scores, estimated token use, and the complete evidence trace. The included corpus is an authored artificial schema fixture, not a transcription of the Annals and not suitable for historical claims.
+Open `http://127.0.0.1:8765`. The bundled articles are authored interface examples, not Annals records. The browser shows rewritten queries, date filters, whole-article evidence, token use and citations. For an offline JSON check, run `python scripts/verify.py`; its answer includes the full retrieval trace.
 
 ### Bring your own public corpus
 
@@ -81,10 +82,30 @@ Download records through the official National Institute of Korean History servi
 
 `year`, `month`, and `day` columns may replace `date`. Keep downloads under ignored `data/`. This code does not crawl the site because endpoint structure and access policy can change.
 
-After exporting real articles with that contract, replace `examples/articles.jsonl` in the CLI command: `joseon-rag build data/articles.jsonl --out outputs/my.index.json`, then query it with `joseon-rag ask outputs/my.index.json "your question" --events examples/events.json --out outputs/my-answer.json`. The smoke script uses the same loader, indexer, retrieval, answer, and citation paths.
+After exporting real articles with that contract, replace `examples/articles.jsonl` in the CLI command: `joseon-rag build data/articles.jsonl --out outputs/my.index.json`, then query it with `joseon-rag ask outputs/my.index.json "your question" --events examples/events.json --out outputs/my-answer.json`. The verify script uses the same loader, indexer, retrieval, answer, and citation paths.
 
 The default index is an honestly labeled TF-IDF baseline and requires no model. For a sentence-transformer already present in your cache, run `python -m pip install -e ".[semantic]"` and `joseon-rag build data/articles.jsonl --out outputs/semantic.index.json --backend sentence-transformer --model path-or-cached-model-name`. The loader uses `local_files_only=True` and fails rather than downloading weights. The CLI also supports a user-run OpenAI-compatible endpoint (`--regenerator endpoint --base-url ... --model ...`) or a local JSON-in/query-out command adapter. API use, models, and costs remain the user's responsibility.
 
 Extractive generation is the default. To call a user-operated compatible model with the retrieved, source-labeled evidence, add `--generator endpoint --base-url http://localhost:8000/v1 --model your-model`. A local process can be used with `--generator command --generator-command "your-program --json"`; it receives JSON containing the grounded prompt and evidence. These adapter outputs are marked unverified in the result. Always inspect their cited source IDs and evidence trace.
 
 This baseline cannot reproduce the reported evaluation scores. It does not know that an inferred date is historically correct, and the primary source may contain variant or conflicting accounts. Inspect citations and the trace. See [REQUIREMENTS.md](REQUIREMENTS.md) for the paper/assumption boundary.
+
+
+### Browser demo and selected-page import
+
+The CLI and local browser share the same article-preserving index and retrieval code. The bundled articles are authored demonstration text, not historical records. After installing the package:
+
+```powershell
+joseon-rag build examples/articles.jsonl --out outputs/demo.index.json
+joseon-rag serve outputs/demo.index.json --events examples/events.json
+```
+
+Open http://127.0.0.1:8765 to inspect rewritten questions, date filters, selected full articles, scores, token use and cited answers. Add `--base-url http://127.0.0.1:8000/v1 --model your-model` to enable model-powered rewrite and grounded generation controls; inspect model output against the source articles.
+
+For a single public article you have selected and are permitted to use, import saved HTML or fetch that exact URL. The URL, manually supplied article ID/date, and extracted text are kept in each JSONL record. Review the extraction before building; complex pages may include navigation or omit JavaScript-rendered text.
+
+```powershell
+joseon-rag import-html "https://sillok.history.go.kr/your-selected-article" --file data/selected-article.html --id selected-id --date 1420-05-12 --title "Article title" --out data/articles.jsonl
+joseon-rag build data/articles.jsonl --out outputs/my.index.json
+joseon-rag serve outputs/my.index.json --events examples/events.json
+```
