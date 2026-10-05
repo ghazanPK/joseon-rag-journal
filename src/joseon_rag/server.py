@@ -12,9 +12,12 @@ from .speech_backend import SpeechBackend, speech_route
 
 
 def create_handler(index_path: Path, events_path: Path | None = None,
-                   base_url: str = "", model: str = "", embodied: bool = False):
+                   base_url: str = "", model: str = "", embodied: bool = False, *,
+                   chat_style: str = "auto", profile: str = "journal", api_key_env: str = "OPENAI_API_KEY",
+                   max_output_tokens: int | None = None):
     index = json.loads(index_path.read_text(encoding="utf-8"))
     events = json.loads(events_path.read_text(encoding="utf-8")) if events_path else {}
+    llm = dict(api_key_env=api_key_env, profile=profile, chat_style=chat_style, max_output_tokens=max_output_tokens)
     page_path = Path(__file__).parents[2] / "static" / "index.html"
     static = Path(__file__).parents[2] / "static"
     speech = SpeechBackend()
@@ -58,14 +61,14 @@ def create_handler(index_path: Path, events_path: Path | None = None,
                 if rewrite not in {"rule", "none", "endpoint"}:
                     raise ValueError("unsupported rewrite mode")
                 rewritten = query if rewrite == "none" else (
-                    OpenAICompatibleRegenerator(base_url, model).rewrite(query) if rewrite == "endpoint" and base_url and model
+                    OpenAICompatibleRegenerator(base_url, model, **llm).rewrite(query) if rewrite == "endpoint" and base_url and model
                     else RuleRegenerator(events).rewrite(query))
                 if rewrite == "endpoint" and not (base_url and model):
                     raise ValueError("configure --base-url and --model to use endpoint rewriting")
                 bundle = retrieve(index, query, rewritten, budget)
                 generation = data.get("generation", "extractive")
                 if generation == "endpoint" and base_url and model:
-                    result = OpenAICompatibleGenerator(base_url, model).generate(bundle)
+                    result = OpenAICompatibleGenerator(base_url, model, **llm).generate(bundle)
                 elif generation == "extractive":
                     result = answer(bundle)
                 else:
@@ -93,10 +96,11 @@ def main():
     parser.add_argument("--events", type=Path)
     parser.add_argument("--base-url", default="")
     parser.add_argument("--model", default="")
+    parser.add_argument("--chat-style", choices=["auto", "standard", "reasoning"], default="auto")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8765)
     args = parser.parse_args()
-    server = ThreadingHTTPServer((args.host, args.port), create_handler(args.index, args.events, args.base_url, args.model))
+    server = ThreadingHTTPServer((args.host, args.port), create_handler(args.index, args.events, args.base_url, args.model, chat_style=args.chat_style))
     print(f"Open http://{args.host}:{args.port}")
     server.serve_forever()
 

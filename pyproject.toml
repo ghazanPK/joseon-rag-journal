@@ -12,6 +12,7 @@ dependencies = []
 
 [project.optional-dependencies]
 semantic = ["sentence-transformers>=3.0"]
+tokens = ["tiktoken>=0.7"]
 speech = ["kokoro>=0.9.4", "soundfile", "faster-whisper>=1.1"]
 
 [project.scripts]

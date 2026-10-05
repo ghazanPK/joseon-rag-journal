@@ -8,9 +8,34 @@ The paper identifies risks: whole articles can mix topics and dilute embeddings,
 
 ## Functional requirements
 
-The public implementation must ingest user-downloaded JSONL or CSV records, preserve one complete source article per chunk, normalize year/month/day and stable source metadata, build an offline searchable index, optionally regenerate a query through a rule/local/HTTP adapter, filter exact and partial dates without silently excluding fallback evidence, rerank candidates, fill a configurable token budget, and emit an extractive evidence-grounded answer with stable citations. Intermediate query, filter, retrieval score, and evidence data must be auditable.
+The public implementation must:
+
+- crawl the Sejong Annals politely and resumably, or ingest user-prepared JSONL/CSV records;
+- preserve one complete source article per chunk;
+- normalize year/month/day (lunar, with the original date string) and stable source metadata;
+- build an offline searchable index;
+- optionally regenerate a query through a rule, local-command or HTTP adapter;
+- filter exact, partial and range dates without silently excluding fallback evidence for inferred dates;
+- rerank candidates and fill a configurable token budget with whole articles;
+- abstain when evidence is missing or contradicts the question's date;
+- emit an evidence-grounded answer with stable citations: cited facts plus a contextual-analysis section.
+
+Intermediate query, filter, similarity floor, packing, retrieval score and evidence data must be auditable.
 
 ## Assumptions and substitutions
 
-This is independent educational code, not the institute implementation. TF-IDF cosine retrieval and an extractive sentence selector are explicit offline baselines, not reproductions of the paper's embedding service or GPT-o1 answer model. The paper does not specify prompts, crawler selectors, embedding model/version, vector database, similarity thresholds, tokenizer, or exact reranker; this project therefore uses documented schemas, approximate wordpiece budgeting, lexical/date/source reranking, and widening fallback when inferred-date filtering produces too few results. Optional OpenAI-compatible HTTP and local-command adapters are generic user-configured interfaces. No claims are made that baseline scores reproduce the paper.
+This is independent educational code, not the institute implementation. Korean-aware TF-IDF retrieval (Latin words plus Hangul/Hanja character bigrams) and an extractive sentence selector are explicit offline baselines. They do not reproduce the paper's embedding service or GPT-o1 answer model.
+
+The paper does not specify the following, so this project makes its own documented choices:
+
+- **Prompts.** The prompt profiles were written from the paper's description: select necessary information from the long context, cite objective facts, add contextual analysis, abstain for erroneous questions, and regenerate queries with event details and approximate dates.
+- **Crawler.** The selectors follow the site's markup observed on 6 October 2026.
+- **Calendar.** Dates keep the Annals' lunar month and day, with year = 1418 + reign year. No Julian or Gregorian conversion is applied.
+- **Tokenizer.** `tiktoken` is used when installed; otherwise a conservative character estimate.
+- **Similarity floors.** The defaults are 0.05 for TF-IDF and 0.30 for dense indexes.
+- **Packing.** Packing is fit-or-stop, which preserves rank order at the cost of unused budget.
+- **Reranking and fallback.** Reranking combines lexical, date and title signals. Inferred-date filtering widens to all records when it matches too few.
+- **Embedding model, vector database and model version** are not reproduced.
+
+Optional OpenAI-compatible HTTP (including an o1-compatible `developer`-role request without `temperature`) and local-command adapters are generic user-configured interfaces. No claims are made that baseline scores reproduce the paper.
 
