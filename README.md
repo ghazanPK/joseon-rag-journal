@@ -40,7 +40,7 @@ Paper reports improvements of approximately 23–50 points on its 100-point eval
 
 ## Explore the implementation
 
-Article-preserving ingestion, date filtering, query rewriting, optional semantic retrieval, evidence traces and extractive or optional grounded LLM answers.
+Article-preserving ingestion with a resumable Sejong Annals crawler, date parsing and filtering, query regeneration, Korean-aware retrieval, evidence traces, and extractive or optional grounded LLM answers with contextual analysis and explicit abstention.
 
 This repository contains independently written research code. The institute's original source, datasets and trained models are not distributed. Public-data preparation, commands, assumptions and checks are documented below and in [REQUIREMENTS.md](REQUIREMENTS.md).
 
@@ -64,7 +64,7 @@ python -m pip install -e .
 python scripts/start_demo.py
 ```
 
-Open **http://127.0.0.1:8080/**. Click **Search evidence** on the prefilled question to inspect the bundled authored articles, retrieval trace and citations. The launcher selects the bundled inputs automatically; it also builds the small authored index for RAG demos. Avatar demos prepare their pinned Three.js modules on first launch, so that step needs internet access. Model weights and public datasets are optional for the starter workflow and are prepared separately for real-data use.
+Open **http://127.0.0.1:8080/**. Click **Search evidence** on the prefilled question to inspect the bundled authored articles, retrieval trace and citations. The launcher selects the bundled inputs automatically; it also builds the small authored retrieval index. Model weights and public datasets are optional for the starter workflow and are prepared separately for real-data use.
 
 <!-- demo-preview:end -->
 
