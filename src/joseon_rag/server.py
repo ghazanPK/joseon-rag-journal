@@ -15,13 +15,14 @@ def create_handler(index_path: Path, events_path: Path | None = None,
                    base_url: str = "", model: str = "", embodied: bool = False):
     index = json.loads(index_path.read_text(encoding="utf-8"))
     events = json.loads(events_path.read_text(encoding="utf-8")) if events_path else {}
-    page = (Path(__file__).parents[2] / "static" / "index.html").read_bytes()
+    page_path = Path(__file__).parents[2] / "static" / "index.html"
     static = Path(__file__).parents[2] / "static"
     speech = SpeechBackend()
 
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
             if self.path == "/":
+                page = page_path.read_bytes()
                 self.send_response(200); self.send_header("Content-Type", "text/html; charset=utf-8")
                 self.send_header("Content-Length", str(len(page))); self.end_headers(); self.wfile.write(page)
             elif self.path == "/api/corpus":

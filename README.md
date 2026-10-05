@@ -50,6 +50,24 @@ Read the paper through its [publisher record](https://doi.org/10.1002/cav.70048)
 
 Please cite the research paper when using its ideas; [download the BibTeX citation](citation.bib). The implementation has its own documented scope.
 
+<!-- demo-preview:start -->
+## Demo preview
+
+![Joseon Rag Journal runnable demo](demo-assets/preview.png)
+
+*Local demo with small starter examples; the capture illustrates the interface, not a reproduced paper benchmark.*
+
+From the repository root, using the Python environment described below:
+
+```sh
+python -m pip install -e .
+python scripts/start_demo.py
+```
+
+Open **http://127.0.0.1:8080/**. Click **Search evidence** on the prefilled question to inspect the bundled authored articles, retrieval trace and citations. The launcher selects the bundled inputs automatically; it also builds the small authored index for RAG demos. Avatar demos prepare their pinned Three.js modules on first launch, so that step needs internet access. Model weights and public datasets are optional for the starter workflow and are prepared separately for real-data use.
+
+<!-- demo-preview:end -->
+
 ## Implementation and usage
 
 <!-- implementation-guide -->
