@@ -50,6 +50,8 @@ Read the paper through its [publisher record](https://doi.org/10.1002/cav.70048)
 
 Please cite the research paper when using its ideas; [download the BibTeX citation](citation.bib). The implementation has its own documented scope.
 
+**Licence.** The code is released under the [MIT licence](LICENSE). It covers the code only: crawled Annals text stays on your machine and follows the source site's terms.
+
 <!-- demo-preview:start -->
 ## Demo preview
 
