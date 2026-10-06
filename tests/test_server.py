@@ -33,3 +33,18 @@ class BrowserAPITest(unittest.TestCase):
                 self.assertEqual(result["trace"]["evidence"][0]["article"]["id"], "a")
             finally:
                 server.shutdown(); server.server_close(); thread.join()
+
+
+class SuggestedQuestionTest(unittest.TestCase):
+    def test_corpus_reports_the_suggested_question(self):
+        with tempfile.TemporaryDirectory() as folder:
+            index = Path(folder) / "index.json"
+            index.write_text(json.dumps(build_index([Article("a", "Text.", "Title", 1420, 5, 6, "https://example.org/a")])), encoding="utf-8")
+            for suggested in ("", "세종 2년 5월 살곶이 다리 공사를 감독한 사람은 누구인가?"):
+                server = ThreadingHTTPServer(("127.0.0.1", 0), create_handler(index, suggested_query=suggested))
+                thread = threading.Thread(target=server.serve_forever, daemon=True); thread.start()
+                try:
+                    with urllib.request.urlopen(f"http://127.0.0.1:{server.server_port}/api/corpus") as response:
+                        self.assertEqual(json.load(response)["suggested_query"], suggested)
+                finally:
+                    server.shutdown(); server.server_close(); thread.join()

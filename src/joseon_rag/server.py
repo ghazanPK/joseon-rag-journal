@@ -14,7 +14,7 @@ from .speech_backend import SpeechBackend, speech_route
 def create_handler(index_path: Path, events_path: Path | None = None,
                    base_url: str = "", model: str = "", embodied: bool = False, *,
                    chat_style: str = "auto", profile: str = "journal", api_key_env: str = "OPENAI_API_KEY",
-                   max_output_tokens: int | None = None):
+                   max_output_tokens: int | None = None, suggested_query: str = ""):
     index = json.loads(index_path.read_text(encoding="utf-8"))
     events = json.loads(events_path.read_text(encoding="utf-8")) if events_path else {}
     llm = dict(api_key_env=api_key_env, profile=profile, chat_style=chat_style, max_output_tokens=max_output_tokens)
@@ -32,7 +32,7 @@ def create_handler(index_path: Path, events_path: Path | None = None,
                 self._json({"articles": len(index["articles"]), "backend": index["backend"],
                             "collection_label": "Authored demonstration records" if index["articles"] and all(a["title"].startswith("Authored example:") for a in index["articles"]) else "Article records",
                             "sources": [{"id": a["id"], "title": a["title"], "url": a["source_url"]} for a in index["articles"]],
-                            "speech": speech.status()})
+                            "suggested_query": suggested_query, "speech": speech.status()})
             elif self.path in {"/static/avatar.js", "/static/speech.js", "/static/vendor/three.module.js", "/static/vendor/three.core.js"}:
                 asset = static / self.path.removeprefix("/static/")
                 if not asset.is_file(): self.send_error(404); return

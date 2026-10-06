@@ -92,6 +92,24 @@ joseon-rag serve outputs/demo.index.json --events examples/events.json
 
 Open `http://127.0.0.1:8765`. The bundled articles are authored interface examples, not Annals records. The browser shows rewritten queries, date filters, whole-article evidence, token use and citations. For an offline JSON check, run `python scripts/verify.py`; its answer includes the full retrieval trace.
 
+### Test with a small sample
+
+A full crawl is not needed to try the pipeline on real Annals text. Sample mode fetches one lunar month: Sejong year 2, month 5 (1420), which holds 87 articles. It never fetches more than 100.
+
+```powershell
+joseon-rag crawl --sample                                   # writes data/sejong-sample.jsonl, caches pages in data/sillok-cache
+joseon-rag build data/sejong-sample.jsonl --out outputs/sejong-sample.index.json
+joseon-rag ask outputs/sejong-sample.index.json "세종 2년 5월 살곶이 다리 공사를 감독한 사람은 누구인가?" --events examples/events.json
+joseon-rag ask outputs/sejong-sample.index.json "세종 2년 5월 3일 양화도에서 군함을 시험한 사람은 누구인가?" --events examples/events.json
+```
+
+- **Timing.** On 6 October 2026 the sample took 165 s: 90 requests (robots.txt, month index, day list and 87 articles) at the default 1.5 s spacing. Sample mode refuses a shorter `--delay`.
+- **Reruns.** Reruns read the cache. A rerun with every page cached makes no network request, not even for `robots.txt`, and adds nothing to the output. An interrupted sample resumes where it stopped.
+- **Answers.** The first question returns cited sentences from kda_10205006_005 and related articles. The second gives the wrong day, so the answer abstains (`INSUFFICIENT EVIDENCE:`) and names the 12th as the recorded date. A question about an event outside the sample, such as the promulgation of Hunminjeongeum, abstains because no article passes the similarity floor.
+- **Other months.** `--years 28 --month 9` picks another month. `--leap` selects the leap month. `--max-articles N` (at most 100) makes the sample smaller.
+- **Browser.** `python scripts/start_demo.py --sample-crawl` fetches the sample, or reuses the cache, then builds the index and serves it with a sample question pre-filled. `--sample` serves an existing sample without network access. Without either flag the demo serves the bundled authored articles offline. It never crawls unless asked.
+- **Data stays local.** The sample, its cache and its index live under ignored `data/` and `outputs/`. The Annals translation is copyrighted (ⓒ 세종대왕기념사업회), so do not commit, publish or redistribute it. The full crawl below is optional.
+
 ### Build the Sejong Annals corpus
 
 The paper crawled the Sejong Annals from the official National Institute of Korean History service, [Annals of the Joseon Dynasty](https://sillok.history.go.kr/). `joseon-rag crawl` does the same locally. It reads the Sejong month index, then each lunar month's article list, then each article page. It writes one JSONL record per article:
@@ -102,9 +120,9 @@ joseon-rag crawl --out data/sejong.jsonl --cache data/sillok-cache            # 
 joseon-rag build data/sejong.jsonl --out outputs/sejong.index.json
 ```
 
-- **Politeness.** Requests are at least 1 s apart (default 1.5 s) and use an identifying user agent. The crawler re-reads `robots.txt` on every run. It stops on HTTP 401/403 or on persistent 429/5xx responses.
+- **Politeness.** Requests are at least 1 s apart (default 1.5 s) and use an identifying user agent. The crawler re-reads `robots.txt` before the first network request of every run. It stops on HTTP 401/403 or on persistent 429/5xx responses.
 - **Resuming.** Every page is cached under `--cache`. Rerunning the same command skips article IDs already in the output file and refetches nothing that is cached. `--offline` parses the cache only.
-- **Scale.** The month index lists 391 lunar months (reign years 0–32, including 12 leap months); the paper reports 30,949 articles. A full crawl therefore takes at least 13 hours at the default delay.
+- **Scale.** The month index lists 391 lunar months (reign years 0–32, including 12 leap months); the paper reports 30,949 articles. A full crawl therefore takes at least 13 hours at the default delay, so start with the sample above.
 - **Records.** Each record holds the article ID (for example `kda_10205029_001`), title, Korean translation as `text`, source URL, volume, footnotes, categories, and the page's date line as `date_original`. `--include-hanja` adds the classical-Chinese original as `hanja_text`.
 - **Dates.** Dates stay in the Annals' lunar calendar. `year` is the Western year printed with the record (세종 N년 = 1418 + N; the accession year 즉위년 is 1418). `month` and `day` are the lunar month and day, without Julian or Gregorian conversion, so a late lunar month can fall early in the next Western year. `leap_month` marks 윤달. Date filters match these lunar fields.
 - **Terms.** On 6 October 2026 `robots.txt` returned an HTML not-found page with no crawl directives. Article pages mark the Korean translation "ⓒ 세종대왕기념사업회" and the original text with a KOGL (공공누리) mark. Follow the site's current terms, keep the corpus and cache under ignored `data/`, and do not redistribute them.

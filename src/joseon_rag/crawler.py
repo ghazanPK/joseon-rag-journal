@@ -11,6 +11,11 @@ and writes one JSONL record per article in the repository's corpus contract.
 Every response is cached under ``--cache``; rerunning the same command resumes
 from the cache and skips article IDs already present in the output file.
 
+Sample mode (``joseon-rag crawl --sample``) fetches one lunar month, by default
+Sejong year 2, month 5 (1420), and holds at most ``SAMPLE_CAP`` records, enough
+to test the pipeline and the demos without a full crawl. A rerun with a complete
+cache makes no network request.
+
 Calendar convention: Annals dates are lunar-calendar dates (음력) as recorded by
 the court. ``year`` is the Western year printed with the record (세종 N년 = 1418 + N;
 the accession year 즉위년 is 1418), while ``month`` and ``day`` are the lunar month
@@ -22,8 +27,9 @@ Access and reuse: on 2026-10-06 ``/robots.txt`` returned an HTML not-found page
 (no crawl directives). The Korean translation carries the notice
 "ⓒ 세종대왕기념사업회" and the classical-Chinese original carries a KOGL
 (공공누리) mark. Keep crawled data local, follow the site's current terms, and do
-not redistribute the corpus. The crawler re-checks robots.txt on every run and
-stops on HTTP 401/403/429 responses it cannot recover from.
+not redistribute the corpus. The crawler re-checks robots.txt before the first
+network request of every run and stops on HTTP 401/403/429 responses it cannot
+recover from.
 """
 from __future__ import annotations
 
@@ -42,6 +48,11 @@ from typing import Callable, Iterable
 BASE_URL = "https://sillok.history.go.kr"
 USER_AGENT = "PaperReach-joseon-rag/0.2 (educational research importer; +https://github.com/ghazanPK)"
 MIN_DELAY_SECONDS = 1.0
+SAMPLE_REIGN_YEAR, SAMPLE_MONTH = 2, 5  # 세종 2년 5월 (lunar), 1420
+SAMPLE_CAP = 100                        # most records a sample may hold
+SAMPLE_MIN_DELAY = 1.5                  # sample runs never go faster than the default rate
+SAMPLE_OUT = Path("data/sejong-sample.jsonl")
+SAMPLE_INDEX = Path("outputs/sejong-sample.index.json")
 KING_CODES = {"kda": ("세종", 1418)}  # Sejong; reign year N = 1418 + N
 MONTH_ID = re.compile(r"^kda_1(\d{2})(\d{2})([01])$")
 ARTICLE_ID = re.compile(r"^kda_1(\d{2})(\d{2})([01])(\d{2})_(\d{3})$")
@@ -290,6 +301,8 @@ class PoliteFetcher:
             return path.read_text(encoding="utf-8")
         if self.offline:
             raise NotCached(f"{key} is not cached and --offline is set")
+        if self.robots_status == "not checked":  # once per run, before the first network page
+            self.log(f"robots: {self.check_robots()}")
         if self.robots is not None and not self.robots.can_fetch(USER_AGENT, url):
             raise CrawlStopped(f"robots.txt disallows {url}")
         backoff = max(self.delay, 5.0)
@@ -329,14 +342,45 @@ def _parse_years(spec: str | None) -> set[int] | None:
     return years
 
 
-def crawl(out: Path, cache_dir: Path, *, years: str | None = None, max_articles: int | None = None, delay: float = 1.5,
+def sample_plan(*, years: str | None = None, month: int | None = None, leap: bool = False,
+                max_articles: int | None = None, delay: float = SAMPLE_MIN_DELAY) -> dict:
+    """Resolve ``--sample`` into crawl arguments: one lunar month, at most ``SAMPLE_CAP`` records.
+
+    Defaults to Sejong year 2, month 5. ``--years`` (one reign year), ``--month``,
+    ``--leap`` and a smaller ``--max-articles`` may narrow the sample; anything
+    larger than the cap or faster than ``SAMPLE_MIN_DELAY`` is refused. The cap
+    counts records already in the output, so reruns never grow the sample.
+    """
+    if years is not None:
+        chosen = _parse_years(years) or set()
+        if len(chosen) != 1:
+            raise ValueError("--sample takes a single reign year, e.g. --years 2")
+        years = str(next(iter(chosen)))
+    if max_articles is not None and not 1 <= max_articles <= SAMPLE_CAP:
+        raise ValueError(f"--sample holds 1-{SAMPLE_CAP} articles; drop --sample for a larger crawl")
+    if delay < SAMPLE_MIN_DELAY:
+        raise ValueError(f"--sample uses a delay of at least {SAMPLE_MIN_DELAY} s")
+    return {"years": years or str(SAMPLE_REIGN_YEAR), "month": month or SAMPLE_MONTH, "leap": leap,
+            "max_articles": None, "max_total": max_articles or SAMPLE_CAP, "delay": delay}
+
+
+def crawl(out: Path, cache_dir: Path, *, years: str | None = None, month: int | None = None, leap: bool = False,
+          max_articles: int | None = None, max_total: int | None = None, delay: float = 1.5,
           include_hanja: bool = False, offline: bool = False, fetcher: PoliteFetcher | None = None,
           log: Callable[[str], None] = print) -> dict:
-    """Crawl the Sejong Annals into ``out`` (JSONL, appended). Resumable."""
+    """Crawl the Sejong Annals into ``out`` (JSONL, appended). Resumable.
+
+    ``month``/``leap`` select one lunar month within ``years``. ``max_articles``
+    limits new records per run; ``max_total`` limits the records of the selected
+    months held in ``out`` (existing ones included), as used by sample mode.
+    """
+    if month is not None and not 1 <= month <= 12:
+        raise ValueError("lunar month must be 1-12")
+    if leap and month is None:
+        raise ValueError("--leap needs --month")
     out = Path(out); cache_dir = Path(cache_dir)
     fetcher = fetcher or PoliteFetcher(cache_dir, delay=delay, offline=offline, log=log)
-    robots = fetcher.check_robots()
-    log(f"robots: {robots}")
+    started = fetcher.clock()
     done: set[str] = set()
     if out.is_file():
         for line in out.read_text(encoding="utf-8").splitlines():
@@ -345,25 +389,35 @@ def crawl(out: Path, cache_dir: Path, *, years: str | None = None, max_articles:
                 except (json.JSONDecodeError, KeyError): pass
     wanted = _parse_years(years)
     index_html = fetcher.get(f"{BASE_URL}/search/inspectionMonthList.do?id=kda", "index-kda")
-    months = [m for m in parse_month_index(index_html) if wanted is None or m.reign_year in wanted]
-    if not months:
+    listed = parse_month_index(index_html)
+    if not listed:
         raise ValueError("no lunar months found in the month index; the page structure may have changed")
+    months = [m for m in listed if (wanted is None or m.reign_year in wanted)
+              and (month is None or (m.month, m.leap) == (month, leap))]
+    if not months:
+        raise ValueError(f"the month index lists no lunar month matching years={years!r} month={month} leap={leap}")
     out.parent.mkdir(parents=True, exist_ok=True)
     written = skipped = failed = 0; failures = cache_dir / "failures.jsonl"
+
+    def summary(stopped: str) -> dict:
+        return _summary(out, months, written, skipped, failed, fetcher, fetcher.robots_status, stopped, fetcher.clock() - started)
+
     with out.open("a", encoding="utf-8") as sink:
-        for month in months:
+        for ref in months:
             try:
-                day_html = fetcher.get(f"{BASE_URL}/search/inspectionDayList.do?id={month.id}&level=3", f"month-{month.id}")
+                day_html = fetcher.get(f"{BASE_URL}/search/inspectionDayList.do?id={ref.id}&level=3", f"month-{ref.id}")
             except (FileNotFoundError, NotCached) as exc:
-                failed += 1; log(f"skip month {month.id}: {exc}"); continue
-            ids = parse_day_list(day_html, month.id)
+                failed += 1; log(f"skip month {ref.id}: {exc}"); continue
+            ids = parse_day_list(day_html, ref.id)
             if not ids:
-                log(f"warning: no articles listed for {month.id}")
+                log(f"warning: no articles listed for {ref.id}")
             for aid in ids:
+                if max_total is not None and written + skipped >= max_total:
+                    return summary("max-total")
                 if aid in done:
                     skipped += 1; continue
                 if max_articles is not None and written >= max_articles:
-                    return _summary(out, months, written, skipped, failed, fetcher, robots, stopped="max-articles")
+                    return summary("max-articles")
                 url = f"{BASE_URL}/id/{aid}"
                 try:
                     record = parse_article(fetcher.get(url, f"article-{aid}"), aid, include_hanja=include_hanja, url=url)
@@ -377,9 +431,14 @@ def crawl(out: Path, cache_dir: Path, *, years: str | None = None, max_articles:
                 done.add(aid); written += 1
                 if written % 50 == 0:
                     log(f"{written} articles written ({aid}); {fetcher.requests} network requests")
-    return _summary(out, months, written, skipped, failed, fetcher, robots, stopped="complete")
+    return summary("complete")
 
 
-def _summary(out, months, written, skipped, failed, fetcher, robots, stopped):
-    return {"out": str(out), "months": len(months), "written": written, "skipped_existing": skipped, "failed": failed,
-            "network_requests": fetcher.requests, "robots": robots, "stopped": stopped}
+def _summary(out, months, written, skipped, failed, fetcher, robots, stopped, elapsed):
+    if robots == "not checked":
+        robots = "offline (not checked)" if fetcher.offline else "not checked (every page was cached; no network request)"
+    result = {"out": str(out), "months": len(months), "written": written, "skipped_existing": skipped, "failed": failed,
+              "network_requests": fetcher.requests, "robots": robots, "stopped": stopped, "elapsed_seconds": round(elapsed, 1)}
+    if len(months) <= 12:
+        result["month_ids"] = [m.id for m in months]
+    return result

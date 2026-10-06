@@ -4,13 +4,18 @@ The HTML fixtures in tests/fixtures/sillok reproduce the markup of
 sillok.history.go.kr month-index, day-list and article pages as observed on
 2026-10-06; their text is authored for the tests and contains no Annals content.
 """
+import io
 import json
+import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
+from joseon_rag import cli
 from joseon_rag.core import load_articles
-from joseon_rag.crawler import BASE_URL, CrawlStopped, PoliteFetcher, crawl, parse_article, parse_day_list, parse_month_index
+from joseon_rag.crawler import (BASE_URL, SAMPLE_CAP, SAMPLE_MONTH, SAMPLE_OUT, SAMPLE_REIGN_YEAR, CrawlStopped, PoliteFetcher,
+                                crawl, parse_article, parse_day_list, parse_month_index, sample_plan)
 from joseon_rag.importer import import_page
 
 FIX = Path(__file__).parent / "fixtures" / "sillok"
@@ -139,6 +144,80 @@ class CrawlTest(unittest.TestCase):
     def test_minimum_delay_is_enforced(self):
         with self.assertRaises(ValueError):
             PoliteFetcher(Path("unused"), delay=0.2)
+
+
+class SampleModeTest(unittest.TestCase):
+    """``crawl --sample``: one lunar month, capped, idempotent; fixtures only, no network."""
+
+    pages = CrawlTest.pages
+    fetcher = CrawlTest.fetcher
+
+    def test_plan_defaults_and_refusals(self):
+        plan = sample_plan()
+        self.assertEqual((plan["years"], plan["month"], plan["leap"], plan["max_total"], plan["delay"]),
+                         (str(SAMPLE_REIGN_YEAR), SAMPLE_MONTH, False, SAMPLE_CAP, 1.5))
+        self.assertEqual((SAMPLE_REIGN_YEAR, SAMPLE_MONTH, SAMPLE_CAP), (2, 5, 100))
+        self.assertIsNone(plan["max_articles"])
+        self.assertEqual(sample_plan(years="28", month=9, max_articles=30)["max_total"], 30)
+        self.assertEqual(sample_plan(years="28", month=9)["years"], "28")
+        for bad in (dict(max_articles=SAMPLE_CAP + 1), dict(max_articles=0), dict(delay=1.0), dict(years="1-3"), dict(years="40")):
+            with self.assertRaises(ValueError, msg=bad):
+                sample_plan(**bad)
+
+    def run_cli(self, *argv):
+        captured = {}
+
+        def fake_crawl(out, cache, **kw):
+            captured.update(out=out, cache=cache, **kw); return {"written": 0}
+        with mock.patch("joseon_rag.crawler.crawl", fake_crawl), mock.patch.object(sys, "argv", ["joseon-rag", "crawl", *argv]), \
+                mock.patch("sys.stdout", io.StringIO()), mock.patch("sys.stderr", io.StringIO()):
+            cli.main()
+        return captured
+
+    def test_cli_sample_arguments(self):
+        got = self.run_cli("--sample")
+        self.assertEqual((got["out"], got["years"], got["month"], got["leap"], got["max_total"], got["max_articles"], got["delay"]),
+                         (SAMPLE_OUT, "2", 5, False, 100, None, 1.5))
+        got = self.run_cli("--sample", "--max-articles", "12", "--out", "data/x.jsonl")
+        self.assertEqual((got["out"], got["max_total"]), (Path("data/x.jsonl"), 12))
+        got = self.run_cli("--out", "o.jsonl", "--years", "2", "--month", "5", "--max-articles", "7")
+        self.assertEqual((got["month"], got["max_articles"]), (5, 7)); self.assertNotIn("max_total", got)
+        for argv in (["--sample", "--max-articles", "500"], ["--sample", "--delay", "1.0"], ["--years", "2"]):
+            with self.assertRaises(SystemExit, msg=argv):
+                self.run_cli(*argv)
+
+    def test_sample_crawl_is_capped_and_idempotent(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d); out = root / "sample.jsonl"; clock = FakeClock()
+            plan = sample_plan(max_articles=2); plan.pop("delay")  # the test fetcher runs at the same 1.5 s
+            f, opener = self.fetcher(root / "cache", self.pages(), clock)
+            s = crawl(out, root / "cache", fetcher=f, log=lambda m: None, **plan)
+            self.assertEqual((s["written"], s["stopped"], s["month_ids"]), (2, "max-total", ["kda_102050"]))
+            self.assertNotIn("kda_102011", " ".join(u for u, _ in opener.calls))  # other months are never fetched
+            times = [t for _, t in opener.calls]
+            self.assertTrue(all(b - a >= 1.5 for a, b in zip(times, times[1:])), times)
+            # Rerun with the same cap: everything comes from the cache, no request at all (not even robots.txt).
+            f2, opener2 = self.fetcher(root / "cache", self.pages(), clock)
+            s2 = crawl(out, root / "cache", fetcher=f2, log=lambda m: None, **plan)
+            self.assertEqual((s2["written"], s2["skipped_existing"], s2["network_requests"]), (0, 2, 0))
+            self.assertEqual(opener2.calls, []); self.assertIn("not checked", s2["robots"])
+            self.assertEqual(len(out.read_text(encoding="utf-8").splitlines()), 2)
+            # A larger cap resumes with only the missing article.
+            f3, opener3 = self.fetcher(root / "cache", self.pages(), clock)
+            bigger = sample_plan(); bigger.pop("delay")
+            s3 = crawl(out, root / "cache", fetcher=f3, log=lambda m: None, **bigger)
+            self.assertEqual((s3["written"], s3["stopped"]), (1, "complete"))
+            self.assertEqual([u for u, _ in opener3.calls], [f"{BASE_URL}/robots.txt", f"{BASE_URL}/id/kda_10205030_001"])
+
+    def test_month_and_leap_selection(self):
+        with tempfile.TemporaryDirectory() as d:
+            f, opener = self.fetcher(Path(d) / "c", self.pages(), FakeClock())
+            s = crawl(Path(d) / "o.jsonl", Path(d) / "c", years="2", month=1, leap=True, fetcher=f, log=lambda m: None)
+            self.assertEqual((s["month_ids"], s["written"]), (["kda_102011"], 0))
+            with self.assertRaises(ValueError):  # no such month in the index
+                crawl(Path(d) / "o.jsonl", Path(d) / "c", years="2", month=7, fetcher=f, log=lambda m: None)
+            with self.assertRaises(ValueError):
+                crawl(Path(d) / "o.jsonl", Path(d) / "c", years="2", leap=True, fetcher=f, log=lambda m: None)
 
 
 if __name__ == "__main__":

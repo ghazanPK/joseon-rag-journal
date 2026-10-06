@@ -30,6 +30,7 @@ The paper does not specify the following, so this project makes its own document
 
 - **Prompts.** The prompt profiles were written from the paper's description: select necessary information from the long context, cite objective facts, add contextual analysis, abstain for erroneous questions, and regenerate queries with event details and approximate dates.
 - **Crawler.** The selectors follow the site's markup observed on 6 October 2026.
+- **Small sample.** The paper used the whole Sejong reign. For testing, `joseon-rag crawl --sample` fetches one lunar month (Sejong year 2, month 5; 87 articles in 165 s on 6 October 2026). It holds at most 100 records and runs at no less than 1.5 s per request. A cached rerun makes no request. `scripts/start_demo.py --sample-crawl` serves the sample; by default the demo stays on the authored offline examples. A sample answer illustrates the pipeline and is not a benchmark result. Crawled text stays under ignored `data/` and is not redistributed. The full crawl is optional.
 - **Calendar.** Dates keep the Annals' lunar month and day, with year = 1418 + reign year. No Julian or Gregorian conversion is applied.
 - **Tokenizer.** `tiktoken` is used when installed; otherwise a conservative character estimate.
 - **Similarity floors.** The defaults are 0.05 for TF-IDF and 0.30 for dense indexes.
